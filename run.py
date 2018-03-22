@@ -154,6 +154,8 @@ class Simultaneidad(Messages):
 if __name__ == '__main__':
     date = sys.argv[1]
     name = sys.argv[2]
+    # date = '03/01/2018'
+    # name = 'daniel.json'
     poo = Simultaneidad(
         date, name
     )
