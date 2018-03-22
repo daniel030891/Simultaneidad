@@ -1,11 +1,10 @@
 # !/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import datetime
-
-start = datetime.datetime.now()
 import itertools
-import json
+import string
+import re
+import sys
 
 from nls import *
 from sigcatmin.settings import *
@@ -14,9 +13,10 @@ conn = Connection().conn
 
 
 class Simultaneidad(Messages):
-    def __init__(self):
+    def __init__(self, date, name):
         super(self.__class__, self).__init__()
-        self.date = '03/01/2018'
+        self.date = date
+        self.name = name
         self.cursor = conn.cursor()
         self.codigous, self.quads = list(), list()
         self.codes, self.rls = list(), dict()
@@ -58,7 +58,6 @@ class Simultaneidad(Messages):
         rls_tmp = {x: [i[1] for i in [n for n in self.quads if n[0] == x]] for x in keys_all}
         self.rls = {k: tuple(sorted(v)) for k, v in rls_tmp.items() if len(v) > 1}
         self.codes = [x for x in list(set([v for k, v in self.rls.items()]))]
-        import string
         self.letters = list(string.ascii_uppercase)
         self.letters.extend([x + i for x in string.ascii_uppercase[:4] for i in self.letters])
 
@@ -97,7 +96,7 @@ class Simultaneidad(Messages):
             sys_refcursor,
             [clob, self.zone, self.date]
         )
-        import re
+
         self.rows = {
             x[0]: map(lambda m: (float(m[0]), float(m[-1])), [re.findall("\d+\.\d+", i) for i in x[1].split(',')])
             for x in sys_refcursor.getvalue()}
@@ -131,10 +130,9 @@ class Simultaneidad(Messages):
         return gp
 
     def export(self):
+        import json
         content = json.dumps(self.simul, ensure_ascii=False).encode('utf8')
-        import uuid
-        name = 'a{:.5}.json'.format(str(uuid.uuid4()))
-        with open(os.path.join(TMP_FOLDER, name), 'w') as f:
+        with open(os.path.join(TMP_FOLDER, self.name), 'w') as f:
             f.write(content)
             f.close()
 
@@ -154,7 +152,9 @@ class Simultaneidad(Messages):
 
 
 if __name__ == '__main__':
-    poo = Simultaneidad()
+    date = sys.argv[1]
+    name = sys.argv[2]
+    poo = Simultaneidad(
+        date, name
+    )
     poo.main()
-
-print datetime.datetime.now() - start
