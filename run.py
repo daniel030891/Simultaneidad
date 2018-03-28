@@ -5,6 +5,7 @@ import itertools
 import string
 import re
 import sys
+from sys import stdout
 
 from nls import *
 from sigcatmin.settings import *
@@ -13,10 +14,10 @@ conn = Connection().conn
 
 
 class Simultaneidad(Messages):
-    def __init__(self, date, name):
+    def __init__(self, date):
         super(self.__class__, self).__init__()
         self.date = date
-        self.name = name
+        # self.name = name
         self.cursor = conn.cursor()
         self.codigous, self.quads = list(), list()
         self.codes, self.rls = list(), dict()
@@ -43,7 +44,7 @@ class Simultaneidad(Messages):
         zn = [x for x in self.codigous if x[1] == str(self.zone)]
         sql = "'%s'" % "', '".join([x[0] for x in zn])
 
-        self.simul[self.zone] = {}
+        self.simul['Z%s' % self.zone] = {}
 
         sys_refcur = self.cursor.var(oracle.CURSOR)
         self.cursor.callfunc(
@@ -69,21 +70,21 @@ class Simultaneidad(Messages):
                 groups_tmp.remove(i)
             groups_tmp += [list(set([i for n in components for i in n]))]
         for i, x in enumerate(groups_tmp, 1):
-            self.simul[self.zone][i] = {"codigou": x}
+            self.simul['Z%s' % self.zone]['G%s' % i] = {"codigou": x}
 
     def get_subgroups(self):
         subgroups = [[list(x), [n for n in self.rls if self.rls[n] == x]] for x in self.codes]
         self.get_rows(subgroups)
         self.review_simult(subgroups)
         self.subgroups.sort()
-        for k, v in self.simul[self.zone].items():
+        for k, v in self.simul['Z%s' % self.zone].items():
             n = int()
             subgrupos = dict()
             for i in self.subgroups:
                 if i[0][0] in v['codigou']:
                     subgrupos[self.letters[n]] = {'derechos': i[0], 'hojas': i[1]}
                     n += 1
-            self.simul[self.zone][k]['subgrupos'] = subgrupos
+            self.simul['Z%s' % self.zone][k]['subgrupos'] = subgrupos
 
     def get_rows(self, subgroups):
         quads = [i for n in subgroups for i in n[1]]
@@ -131,10 +132,10 @@ class Simultaneidad(Messages):
 
     def export(self):
         import json
-        content = json.dumps(self.simul, ensure_ascii=False).encode('utf8')
-        with open(os.path.join(TMP_FOLDER, self.name), 'w') as f:
-            f.write(content)
-            f.close()
+        self.res = json.dumps(self.simul, ensure_ascii=False).encode('utf8')
+        # with open(os.path.join(TMP_FOLDER, 'asdasd.json'), 'w') as f:
+        #     f.write(self.res)
+        #     f.close()
 
     def process(self, zone):
         self.set_zone(zone)
@@ -153,10 +154,9 @@ class Simultaneidad(Messages):
 
 if __name__ == '__main__':
     date = sys.argv[1]
-    name = sys.argv[2]
     # date = '03/01/2018'
     # name = 'daniel.json'
-    poo = Simultaneidad(
-        date, name
-    )
+    poo = Simultaneidad(date)
     poo.main()
+    stdout.write(poo.res)
+    stdout.flush()
