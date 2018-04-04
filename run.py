@@ -17,12 +17,12 @@ class Simultaneidad(Messages):
     def __init__(self, date):
         super(self.__class__, self).__init__()
         self.date = date
-        # self.name = name
         self.cursor = conn.cursor()
         self.codigous, self.quads = list(), list()
         self.codes, self.rls = list(), dict()
         self.groups, self.subgroups = dict(), list()
         self.simul, self.coords = dict(), dict()
+        self.res = list()
         self.zone = int()
         self.rows = dict()
 
@@ -44,7 +44,7 @@ class Simultaneidad(Messages):
         zn = [x for x in self.codigous if x[1] == str(self.zone)]
         sql = "'%s'" % "', '".join([x[0] for x in zn])
 
-        self.simul['Z%s' % self.zone] = {}
+        self.simul[self.zone] = {}
 
         sys_refcur = self.cursor.var(oracle.CURSOR)
         self.cursor.callfunc(
@@ -52,39 +52,59 @@ class Simultaneidad(Messages):
             sys_refcur,
             [sql, self.zone, self.date]
         )
+        # Obtiene cada cuadricula que se intersecta con un derecho
         self.quads = [x for x in sys_refcur.getvalue()]
 
     def prepare_data(self):
-        keys_all = list(set([x[0] for x in self.quads]))
-        rls_tmp = {x: [i[1] for i in [n for n in self.quads if n[0] == x]] for x in keys_all}
-        self.rls = {k: tuple(sorted(v)) for k, v in rls_tmp.items() if len(v) > 1}
-        self.codes = [x for x in list(set([v for k, v in self.rls.items()]))]
+        # Obtiene la relacion de cuadriculas unicas
+        keys_all = list(set([x[0] for x in self.quads]))  # Ejemplo: [u'15-F_1137', u'15-F_1138', u'15-F_1139']
+
+        # Obtiene la relacion de cuadriculas con todos los drechos traslapados entre si
+        rls_tmp = {x: [i[1] for i in [n for n in self.quads if n[0] == x]] for x in
+                   keys_all}  # Ejemplo: {u'14-E_1455': (u'010009318', u'010016318')}
+
+        # Obtiene aquellas cuadriculas que se intersectan con mas de un derecho
+        self.rls = {k: tuple(sorted(v)) for k, v in rls_tmp.items() if
+                    len(v) > 1}
+
+        # Obtiene las agrupaciones unicas de derechos en 'self.rls'
+        self.codes = list(set(
+            [v for k, v in self.rls.items()]))  # Ejemplo: [(u'010009218', u'010016318'), (u'010009318', u'010016218')]
+
         self.letters = list(string.ascii_uppercase)
         self.letters.extend([x + i for x in string.ascii_uppercase[:4] for i in self.letters])
 
     def get_groups(self):
-        groups_tmp = [x for x in self.codes]
+        # Realiza un copia de 'self.codes' para no alterar su informacion en el procesamiento
+        groups_tmp = self.codes[:]
+        # Se realiza la iteracion de todos los valores unicos de derechos
         for n in set([i for n in groups_tmp for i in n]):
+            # Se realiza un slicing de todas las grupaciones que contienen un derecho
             components = [x for x in groups_tmp if n in x]
+            # Se iteran estas agrupaciones
             for i in components:
+                # Se remueven las agrupaciones de la lista principal
                 groups_tmp.remove(i)
+            # Se agrega a la lista principal todos los valores unicos de la lista 'componentes'
             groups_tmp += [list(set([i for n in components for i in n]))]
+
         for i, x in enumerate(groups_tmp, 1):
-            self.simul['Z%s' % self.zone]['G%s' % i] = {"codigou": x}
+            self.simul[self.zone][i] = {"codigou": x}
+
 
     def get_subgroups(self):
         subgroups = [[list(x), [n for n in self.rls if self.rls[n] == x]] for x in self.codes]
         self.get_rows(subgroups)
         self.review_simult(subgroups)
         self.subgroups.sort()
-        for k, v in self.simul['Z%s' % self.zone].items():
+        for k, v in self.simul[self.zone].items():
             n = int()
-            subgrupos = dict()
             for i in self.subgroups:
                 if i[0][0] in v['codigou']:
-                    subgrupos[self.letters[n]] = {'derechos': i[0], 'hojas': i[1]}
-                    n += 1
-            self.simul['Z%s' % self.zone][k]['subgrupos'] = subgrupos
+                    p = [{'codigou': x, 'cuadricula': m, 'grupo': k, 'subgrupo': self.letters[n],
+                          'zona': self.zone} for
+                         x in i[0] for m in i[1]]
+                    self.res.extend(p)
 
     def get_rows(self, subgroups):
         quads = [i for n in subgroups for i in n[1]]
@@ -132,10 +152,9 @@ class Simultaneidad(Messages):
 
     def export(self):
         import json
-        self.res = json.dumps(self.simul, ensure_ascii=False).encode('utf8')
-        # with open(os.path.join(TMP_FOLDER, 'asdasd.json'), 'w') as f:
-        #     f.write(self.res)
-        #     f.close()
+        self.res.sort(key=lambda x: [x["zona"], x["grupo"], x["subgrupo"], x["cuadricula"], x["codigou"]],
+                      reverse=False)
+        self.res = json.dumps(self.res, ensure_ascii=False).encode('utf8')
 
     def process(self, zone):
         self.set_zone(zone)
@@ -153,9 +172,8 @@ class Simultaneidad(Messages):
 
 
 if __name__ == '__main__':
-    date = sys.argv[1]
-    # date = '03/01/2018'
-    # name = 'daniel.json'
+    # date = sys.argv[1]
+    date = '03/01/2018'
     poo = Simultaneidad(date)
     poo.main()
     stdout.write(poo.res)
