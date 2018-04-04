@@ -25,6 +25,7 @@ class Simultaneidad(Messages):
         self.res = list()
         self.zone = int()
         self.rows = dict()
+        self.num_group = 1
 
     def set_zone(self, value):
         self.zone = value
@@ -88,9 +89,10 @@ class Simultaneidad(Messages):
             # Se agrega a la lista principal todos los valores unicos de la lista 'componentes'
             groups_tmp += [list(set([i for n in components for i in n]))]
 
-        for i, x in enumerate(groups_tmp, 1):
+        # self.num_group += 1
+        for i, x in enumerate(groups_tmp, self.num_group):
+            self.num_group += 1
             self.simul[self.zone][i] = {"codigou": x}
-
 
     def get_subgroups(self):
         subgroups = [[list(x), [n for n in self.rls if self.rls[n] == x]] for x in self.codes]
@@ -101,10 +103,10 @@ class Simultaneidad(Messages):
             n = int()
             for i in self.subgroups:
                 if i[0][0] in v['codigou']:
-                    p = [{'codigou': x, 'cuadricula': m, 'grupo': k, 'subgrupo': self.letters[n],
-                          'zona': self.zone} for
-                         x in i[0] for m in i[1]]
+                    p = [{'codigou': x, 'cuadricula': m, 'grupo': k, 'subgrupo': self.letters[enum], 'zona': self.zone,
+                          'subgrupo_num': enum + 1} for enum, x in enumerate(i[0], n) for m in i[1]]
                     self.res.extend(p)
+                    n += 1
 
     def get_rows(self, subgroups):
         quads = [i for n in subgroups for i in n[1]]
@@ -172,8 +174,8 @@ class Simultaneidad(Messages):
 
 
 if __name__ == '__main__':
-    # date = sys.argv[1]
-    date = '03/01/2018'
+    date = sys.argv[1]
+    # date = '03/01/2018'
     poo = Simultaneidad(date)
     poo.main()
     stdout.write(poo.res)
