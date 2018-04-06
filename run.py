@@ -1,21 +1,32 @@
 # !/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import itertools
-import string
-import re
-import sys
-from sys import stdout
+# Autor: Daniel Aguado H
+# Fecha: 04/04/2018
+# Ingemmet - Lima - Peru
 
-from nls import *
-from sigcatmin.settings import *
+# Importacion de librerias necesarias
+import itertools  # Modulo para generar combinaciones y permutaciones
+import string  # Modulo para el tratamiento de strings
+import re  # Modulo que proporciona expresiones regulares
+import sys  # Modulo que proporciona accesos a varios objetos del interprete python
+from sys import stdout  # Archivo de salida estandard
+from nls import *  # Mensajes utilizados en el procesamiento
+from sigcatmin.settings import *  # Configuracion necesaria para acceso a propiedades del desarrollo actual
 
+# Se realiza la conexion a base de datos
 conn = Connection().conn
 
+# Importando mensajes
+msg = Messages()
 
-class Simultaneidad(Messages):
-    def __init__(self, date):
-        super(self.__class__, self).__init__()
+
+# La simultaneidad por lo general se presenta cuando se realiza la publicacion de áreas declaradas
+# extinguidas o de libre denunciabilidad, provocando la formulacion masiva de petitorios mineros sobre dichas areas.
+
+# Simultaneidad total por fecha de libre denunciabilidad
+class Simultaneidad(object):
+    def __init__(self, date=None):
         self.date = date
         self.cursor = conn.cursor()
         self.codigous, self.quads = list(), list()
@@ -27,9 +38,15 @@ class Simultaneidad(Messages):
         self.rows = dict()
         self.num_group = 1
 
+    # COnfigurar la fecha
+    def set_date(self, value):
+        self.date = value
+
+    # Configurar la zona geografica
     def set_zone(self, value):
         self.zone = value
 
+    # Obtener los codigou de los derechos por fecha
     def get_codigou(self):
         sys_refcursor = self.cursor.var(oracle.CURSOR)
         self.cursor.callfunc(
@@ -39,8 +56,9 @@ class Simultaneidad(Messages):
         )
         self.codigous = [[x[0], x[2]] for x in sys_refcursor.getvalue()]
         if not self.codigous:
-            raise RuntimeError(self.not_registry)
+            raise RuntimeError(msg.not_registry)
 
+    # Obteniendo cuadriculas por cada derecho minero
     def get_quadrants(self):
         zn = [x for x in self.codigous if x[1] == str(self.zone)]
         sql = "'%s'" % "', '".join([x[0] for x in zn])
@@ -56,6 +74,7 @@ class Simultaneidad(Messages):
         # Obtiene cada cuadricula que se intersecta con un derecho
         self.quads = [x for x in sys_refcur.getvalue()]
 
+    # Tratamiento de informacion antes de ser procesada
     def prepare_data(self):
         # Obtiene la relacion de cuadriculas unicas
         keys_all = list(set([x[0] for x in self.quads]))  # Ejemplo: [u'15-F_1137', u'15-F_1138', u'15-F_1139']
@@ -75,6 +94,9 @@ class Simultaneidad(Messages):
         self.letters = list(string.ascii_uppercase)
         self.letters.extend([x + i for x in string.ascii_uppercase[:4] for i in self.letters])
 
+    # Obteniendo los grupos
+    # Todos aquellos derechos que se intersectan entre si manteniendo una conectividad (sin espacios
+    # vacios entre ellos) conforman un grupo.
     def get_groups(self):
         # Realiza un copia de 'self.codes' para no alterar su informacion en el procesamiento
         groups_tmp = self.codes[:]
@@ -94,6 +116,10 @@ class Simultaneidad(Messages):
             self.num_group += 1
             self.simul[self.zone][i] = {"codigou": x}
 
+    # Obteniendo los subgrupos
+    # Los subgrupos se forman a partir de la intersección entre derechos, los cuales confluyen en cuadriculas
+    # Si dos o mas derechos se intersectan en hojas que no son adyacentes, o que se intersectan en un solo vertice,
+    # estos deben ser separados conformando nuevos subgrupos.
     def get_subgroups(self):
         subgroups = [[list(x), [n for n in self.rls if self.rls[n] == x]] for x in self.codes]
         self.get_rows(subgroups)
@@ -103,11 +129,12 @@ class Simultaneidad(Messages):
             n = int()
             for i in self.subgroups:
                 if i[0][0] in v['codigou']:
-                    p = [{'codigou': x, 'cuadricula': m, 'grupo': k, 'subgrupo': self.letters[enum], 'zona': self.zone,
-                          'subgrupo_num': enum + 1} for enum, x in enumerate(i[0], n) for m in i[1]]
+                    p = [{'codigou': m, 'cuadricula': x, 'grupo': k, 'subgrupo': self.letters[n], 'zona': self.zone,
+                          'subgrupo_num': n + 1} for x in i[1] for m in i[0]]
                     self.res.extend(p)
                     n += 1
 
+    # Obteniendo informacion de la base de datos como las coordenadas de cuadriculas
     def get_rows(self, subgroups):
         quads = [i for n in subgroups for i in n[1]]
         sql = "'%s'" % "', '".join(quads)
@@ -126,6 +153,7 @@ class Simultaneidad(Messages):
 
         self.rows = {k: [tuple(sorted(v[i: i + 2])) for i in range(len(v)) if i <= 3] for k, v in self.rows.items()}
 
+    # Revision de cuadriculas simultaneas
     def review_simult(self, subgroups):
         for i in subgroups:
             sub = {x: self.rows[x] for x in i[1]}
@@ -135,6 +163,8 @@ class Simultaneidad(Messages):
             else:
                 self.subgroups.append(i)
 
+    # Metodo encargado de identificar aquellos subgrupos conformados por cuadriculas no adyancentes o
+    # cuadriculas que se intersectan en un solo vertice
     def analysis(self, subgroups):
         gp = list()
         coords_for_quads = [v for k, v in subgroups.items()]
@@ -152,12 +182,14 @@ class Simultaneidad(Messages):
                 gp.append(a)
         return gp
 
+    # Exporta el resultado final como una array de json, adecuando los caracteres especiales
     def export(self):
         import json
         self.res.sort(key=lambda x: [x["zona"], x["grupo"], x["subgrupo"], x["cuadricula"], x["codigou"]],
                       reverse=False)
         self.res = json.dumps(self.res, ensure_ascii=False).encode('utf8')
 
+    # Procesamiento de la informacion por zona geografica
     def process(self, zone):
         self.set_zone(zone)
         self.get_quadrants()
@@ -165,6 +197,7 @@ class Simultaneidad(Messages):
         self.get_groups()
         self.get_subgroups()
 
+    # Metodo principal que ejecuta el algoritmo en su totalidad
     def main(self):
         self.get_codigou()
         self.process(17)
@@ -173,10 +206,39 @@ class Simultaneidad(Messages):
         self.export()
 
 
+# Simultaneidad parcial segun derechos mineros consultados
+class SimultaneidadEval(Simultaneidad):
+    def __init__(self, codigous, zone, datum):
+        super(self.__class__, self).__init__()
+        self.zone = int(zone)
+        self.codigous = [[x, str(self.zone)] for x in codigous.split('_')]
+        self.datum = datum.lower()
+
+    def get_date(self):
+        if self.datum == 'psad_56':
+            self.set_date('03/01/2016')
+        elif self.datum == 'wgs_84':
+            self.set_date('03/01/2018')
+
+    # Metodo principal que ejecuta el algoritmo en su totalidad
+    def main(self):
+        self.get_date()
+        self.process(self.zone)
+        self.export()
+
+
+# Si se ejecuta este fichero
 if __name__ == '__main__':
     date = sys.argv[1]
+    codigous = sys.argv[2]
+    zone = sys.argv[3]
+    datum = sys.argv[4]
     # date = '03/01/2018'
-    poo = Simultaneidad(date)
+    if date != "#":
+        poo = Simultaneidad(date)
+    else:
+        poo = SimultaneidadEval(codigous, zone, datum)
     poo.main()
+    # Devuelve el resultado en consola
     stdout.write(poo.res)
     stdout.flush()
