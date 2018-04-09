@@ -8,6 +8,8 @@
 # Importacion de librerias necesarias
 import itertools  # Modulo para generar combinaciones y permutaciones
 import string  # Modulo para el tratamiento de strings
+import json
+import uuid
 import re  # Modulo que proporciona expresiones regulares
 import sys  # Modulo que proporciona accesos a varios objetos del interprete python
 from sys import stdout  # Archivo de salida estandard
@@ -37,6 +39,7 @@ class Simultaneidad(object):
         self.zone = int()
         self.rows = dict()
         self.num_group = 1
+        self.id = uuid.uuid4().__str__().replace('-', '')[:17]
 
     # COnfigurar la fecha
     def set_date(self, value):
@@ -45,6 +48,16 @@ class Simultaneidad(object):
     # Configurar la zona geografica
     def set_zone(self, value):
         self.zone = value
+
+    # Identifica si la informacion ya fue procesada y almacenada en la
+    # base de datos
+    def check_date_exists_in_database(self):
+        self.togle = self.cursor.var(oracle.NUMBER)
+        self.cursor.callfunc(
+            'DATA_CAT.PACK_DBA_SIMULTANEIDAD.F_CHECK_DATE_EXIST',
+            self.togle,
+            [self.date]
+        )
 
     # Obtener los codigou de los derechos por fecha
     def get_codigou(self):
@@ -120,7 +133,7 @@ class Simultaneidad(object):
     # Los subgrupos se forman a partir de la intersección entre derechos, los cuales confluyen en cuadriculas
     # Si dos o mas derechos se intersectan en hojas que no son adyacentes, o que se intersectan en un solo vertice,
     # estos deben ser separados conformando nuevos subgrupos.
-    def get_subgroups(self):
+    def get_subgroups(self, function):
         subgroups = [[list(x), [n for n in self.rls if self.rls[n] == x]] for x in self.codes]
         self.get_rows(subgroups)
         self.review_simult(subgroups)
@@ -129,9 +142,8 @@ class Simultaneidad(object):
             n = int()
             for i in self.subgroups:
                 if i[0][0] in v['codigou']:
-                    p = [{'codigou': m, 'cuadricula': x, 'grupo': k, 'subgrupo': self.letters[n], 'zona': self.zone,
-                          'subgrupo_num': n + 1} for x in i[1] for m in i[0]]
-                    self.res.extend(p)
+                    [function(m, self.id, x, int(k), n + 1, self.date, str(self.zone), self.letters[n]) for x
+                     in i[1] for m in i[0]]
                     n += 1
 
     # Obteniendo informacion de la base de datos como las coordenadas de cuadriculas
@@ -182,12 +194,12 @@ class Simultaneidad(object):
                 gp.append(a)
         return gp
 
-    # Exporta el resultado final como una array de json, adecuando los caracteres especiales
-    def export(self):
-        import json
-        self.res.sort(key=lambda x: [x["zona"], x["grupo"], x["subgrupo"], x["cuadricula"], x["codigou"]],
-                      reverse=False)
-        self.res = json.dumps(self.res, ensure_ascii=False).encode('utf8')
+    # Inserta la informacion procesada en la base de datos
+    def insert_data_to_database(self, *args):
+        self.cursor.callproc(
+            'DATA_CAT.PACK_DBA_SIMULTANEIDAD.P_INSERT_ROWS_SIMULTANEIDAD',
+            args
+        )
 
     # Procesamiento de la informacion por zona geografica
     def process(self, zone):
@@ -195,15 +207,20 @@ class Simultaneidad(object):
         self.get_quadrants()
         self.prepare_data()
         self.get_groups()
-        self.get_subgroups()
+        self.get_subgroups(self.insert_data_to_database)
 
     # Metodo principal que ejecuta el algoritmo en su totalidad
     def main(self):
-        self.get_codigou()
-        self.process(17)
-        self.process(18)
-        self.process(19)
-        self.export()
+        try:
+            self.check_date_exists_in_database()
+            if not self.togle.getvalue():
+                self.get_codigou()
+                self.process(17)
+                self.process(18)
+                self.process(19)
+            self.res = json.dumps([{"state": 1, "msg": "Success"}])
+        except Exception as e:
+            self.res = json.dumps([{"state": 0, "msg": e.message}])
 
 
 # Simultaneidad parcial segun derechos mineros consultados
@@ -215,16 +232,25 @@ class SimultaneidadEval(Simultaneidad):
         self.datum = datum.lower()
 
     def get_date(self):
-        if self.datum == 'psad_56':
+        if self.datum == 'psad-56':
             self.set_date('03/01/2016')
-        elif self.datum == 'wgs_84':
+        elif self.datum == 'wgs-84':
             self.set_date('03/01/2018')
+
+    def insert_data_to_database(self, *args):
+        self.cursor.callproc(
+            'DATA_CAT.PACK_DBA_SIMULTANEIDAD.P_INSERT_ROWS_SIMULTANEID_EVAL',
+            args
+        )
 
     # Metodo principal que ejecuta el algoritmo en su totalidad
     def main(self):
-        self.get_date()
-        self.process(self.zone)
-        self.export()
+        try:
+            self.get_date()
+            self.process(self.zone)
+            self.res = json.dumps([{"state": 1, "msg": "Success", "id": self.id}])
+        except Exception as e:
+            self.res = json.dumps([{"state": 0, "msg": e.message}])
 
 
 # Si se ejecuta este fichero
@@ -233,7 +259,6 @@ if __name__ == '__main__':
     codigous = sys.argv[2]
     zone = sys.argv[3]
     datum = sys.argv[4]
-    # date = '03/01/2018'
     if date != "#":
         poo = Simultaneidad(date)
     else:
