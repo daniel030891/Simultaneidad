@@ -14,7 +14,8 @@ import re  # Modulo que proporciona expresiones regulares
 import sys  # Modulo que proporciona accesos a varios objetos del interprete python
 from sys import stdout  # Archivo de salida estandard
 from nls import *  # Mensajes utilizados en el procesamiento
-from sigcatmin.settings import *  # Configuracion necesaria para acceso a propiedades del desarrollo actual
+# from sigcatmin.settings import *  # Configuracion necesaria para acceso a propiedades del desarrollo actual
+from config import *
 
 # Se realiza la conexion a base de datos
 conn = Connection().conn
@@ -209,6 +210,13 @@ class Simultaneidad(object):
         self.get_groups()
         self.get_subgroups(self.insert_data_to_database)
 
+    # Dispara el proceso de actualizacion de tablas en segundo plano
+    def update_tables(self):
+        import subprocess
+        date = self.date.split('/')
+        date = '%s%s%s' % (date[-1], date[1], date[0])
+        subprocess.Popen('%s %s' % (UPDATE_TABLES, date), shell=True)
+
     # Metodo principal que ejecuta el algoritmo en su totalidad
     def main(self):
         try:
@@ -218,6 +226,7 @@ class Simultaneidad(object):
                 self.process(17)
                 self.process(18)
                 self.process(19)
+            self.update_tables()
             self.res = json.dumps([{"state": 1, "msg": "Success"}])
         except Exception as e:
             self.res = json.dumps([{"state": 0, "msg": e.message}])
